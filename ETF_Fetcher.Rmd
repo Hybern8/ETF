@@ -17,7 +17,7 @@ knit: (function(inputFile, encoding) {
 knitr::opts_chunk$set(echo = T, warning = F)
 ```
 
-# Set working directory
+# Set working directory - using local drive
 
 ```{r Setting working directory...}
 setwd('C:/Users/hyber/Documents/Stocks')
