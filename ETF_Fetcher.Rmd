@@ -40,7 +40,7 @@ suppressPackageStartupMessages(library(tidyr))
 
 ```{r Extracting select ETF data from Yahoo Finance...}
 ETF = getSymbols(src = 'yahoo', 
-                 Symbols = c('VUSA.AS', 'EUNL.DE', 'VWCE.DE', 'ISFU.L', 'IBIT'),
+                 Symbols = c('VUSA.AS', 'EUNL.DE', 'VWCE.DE', 'ISFU.L'),
                  from = '2017-03-01', to = Sys.Date(), auto.assign = T)
 ```
 
@@ -59,15 +59,12 @@ ETF_Analysis <- merge(ETF_Analysis,
 ETF_Analysis <- merge(ETF_Analysis,
                       ISFU.L$ISFU.L.Adjusted, 
                       join = 'outer')
-ETF_Analysis <- merge(ETF_Analysis,
-                      IBIT$IBIT.Adjusted, 
-                      join = 'outer')
 ```
 
 
 ```{r Renaming columns...}
 # Set new column names
-newNames <-  c('Vang_S&P_500_Acc', 'iShares_World_Acc', 'Vang_FTSE_World_Acc', 'iShares_FTSE_Dist', 'iShares_Bitcoin')
+newNames <-  c('Vang_S&P_500_Acc', 'iShares_World_Acc', 'Vang_FTSE_World_Acc', 'iShares_FTSE_Dist')
 
 # Rename the dataframe's columns
 colnames(ETF_Analysis) <- newNames
@@ -134,9 +131,7 @@ ETFSummary <- ETF_Analysis_impute %>%
             MnPVFTSE = min(Vang_FTSE_World_Acc),
             MxPVFTSE = max(Vang_FTSE_World_Acc),
             MnPiSFTSE = min(iShares_FTSE_Dist),
-            MxPiSFTSE = max(iShares_FTSE_Dist),
-            MnPiSBITc = min(iShares_Bitcoin),
-            MxPiSBITc = max(iShares_Bitcoin)) %>% 
+            MxPiSFTSE = max(iShares_FTSE_Dist)) %>% 
   tbl_df()
 
 ETFSummary %>% 
@@ -231,26 +226,5 @@ ETF_Analysis_impute %>%
   ggplot(aes(Year, iShares_FTSE_Dist)) +
   geom_boxplot() +
   labs(title = 'Box plot for iShares FTSE', xlab = 'Year', ylab = 'Price')
-```
-
-## iShares Bitcoin
-
-```{r Analysing iShares Bitcoin...}
-iFT_Analysis_outlier <- ETF_Analysis_impute %>% 
-  group_by(Year) %>% 
-  summarise(Q1 = quantile(iShares_Bitcoin, probs = 0.25),
-            Q3 = quantile(iShares_Bitcoin, probs = 0.75),
-            IQR = Q3 - Q1,
-            UL = Q3 + 1.5 * IQR,
-            LL = Q1 - 1.5 * IQR) %>% 
-  tibble()
-iFT_Analysis_outlier %>% 
-  kable()
-
-# Plot a box plot
-ETF_Analysis_impute %>% 
-  ggplot(aes(Year, iShares_Bitcoin)) +
-  geom_boxplot() +
-  labs(title = 'Box plot for iShares Bitcoin', xlab = 'Year', ylab = 'Price')
 ```
 
