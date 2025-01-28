@@ -1,0 +1,256 @@
+---
+title: "ETF Fetcher"
+author: "Marcel"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+    number_section: true
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, 
+  output_file = 'C:/Users/hyber/Documents/Stocks/ETF_Fetcher.html')})
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F)
+```
+
+# Set working directory
+
+```{r Setting working directory...}
+setwd('C:/Users/hyber/Documents/Stocks')
+```
+
+# Load package
+
+```{r Loading relevant libraries...}
+suppressPackageStartupMessages(library(quantmod))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(dygraphs))
+suppressPackageStartupMessages(library(xts))
+suppressPackageStartupMessages(library(knitr))
+suppressPackageStartupMessages(library(lubridate))
+suppressPackageStartupMessages(library(plotly))
+suppressPackageStartupMessages(library(tidyr))
+```
+
+# Get ETFs
+
+```{r Extracting select ETF data from Yahoo Finance...}
+ETF = getSymbols(src = 'yahoo', 
+                 Symbols = c('VUSA.AS', 'EUNL.DE', 'VWCE.DE', 'ISFU.L', 'IBIT'),
+                 from = '2017-03-01', to = Sys.Date(), auto.assign = T)
+```
+
+# Merging 'closing price' columns together
+
+We are only interested in the closing prices per period so we merge all adjusted closing prices for the funds into on dataframe.
+
+```{r Merging closing prices into one df...}
+# Use merge() from the library(xts) to keep the 'adjusted close' columns into one data frame
+ETF_Analysis <- merge(VUSA.AS$VUSA.AS.Adjusted, 
+                      EUNL.DE$EUNL.DE.Adjusted, 
+                      join = 'outer')
+ETF_Analysis <- merge(ETF_Analysis, 
+                      VWCE.DE$VWCE.DE.Adjusted,
+                      join = 'outer')
+ETF_Analysis <- merge(ETF_Analysis,
+                      ISFU.L$ISFU.L.Adjusted, 
+                      join = 'outer')
+ETF_Analysis <- merge(ETF_Analysis,
+                      IBIT$IBIT.Adjusted, 
+                      join = 'outer')
+```
+
+
+```{r Renaming columns...}
+# Set new column names
+newNames <-  c('Vang_S&P_500_Acc', 'iShares_World_Acc', 'Vang_FTSE_World_Acc', 'iShares_FTSE_Dist', 'iShares_Bitcoin')
+
+# Rename the dataframe's columns
+colnames(ETF_Analysis) <- newNames
+```
+
+# Handle missing values with missForest()
+
+There are missing values in the extracted data. This is because some days are bank holidays
+for some markets and so there would be no trade for that day. Also, some funds were not existing at earlier periods and so would have NA for values.
+
+Here, we use a Random Forest handling algorithm to fill up missing values with a multivariate approach.
+
+```{r Handling missing values: Please wait...}
+# Parse xts data into dataframe 
+ETF_Analysis_df <- data.frame(ETF_Analysis)
+
+# Handling NAs
+ETF_Analysis_impute <- missForest::missForest(ETF_Analysis_df)$ximp
+
+# View summary
+summary(ETF_Analysis_impute) %>% 
+  kable()
+```
+
+## The 10 most recent closing prices (Latest at the bottom)
+
+The most recent ETF closing prices are displayed at the bottom of the table.
+
+```{r Displaying tail of the extracted data..}
+tail(ETF_Analysis_impute, n = 10) %>% 
+  kable()
+```
+
+# Plotting the graph
+
+```{r Plotting timeseries graph...}
+window <- c('2024-01-01', '2024-05-01')
+dygraph(data = ETF_Analysis_impute,
+        xlab = 'Time',
+        ylab = 'ETF Performance') %>% 
+  dyRebase(value = 100) %>%  # dyRebase: you are able to rebase the prices for scale
+  dyRangeSelector(dateWindow = window) # will allow you select a window to slide through.
+```
+
+
+```{r Writing to, and reading csv to allow for further processing...}
+# Write into csv
+write.csv(ETF_Analysis_impute, 'C:/Users/hyber/Documents/Stocks/ETF.csv', sep = ',',
+          row.names = T)
+# Read in csv for further analysis
+ETF_Analysis_impute <- read.csv('C:/Users/hyber/Documents/Stocks/ETF.csv') %>% 
+  mutate(Index = as.Date(as.character(X)),
+         Year = as.factor(year(Index)))
+```
+
+
+```{r Summarizing minmax values per year for each fund...}
+ETFSummary <- ETF_Analysis_impute %>% 
+  group_by(Year) %>% 
+  summarise(MnPVSP500 = min(Vang_S.P_500_Acc),
+            MxPVSP500 = max(Vang_S.P_500_Acc),
+            MnPiSWld = min(iShares_World_Acc),
+            MxPiSWld = max(iShares_World_Acc),
+            MnPVFTSE = min(Vang_FTSE_World_Acc),
+            MxPVFTSE = max(Vang_FTSE_World_Acc),
+            MnPiSFTSE = min(iShares_FTSE_Dist),
+            MxPiSFTSE = max(iShares_FTSE_Dist),
+            MnPiSBITc = min(iShares_Bitcoin),
+            MxPiSBITc = max(iShares_Bitcoin)) %>% 
+  tbl_df()
+
+ETFSummary %>% 
+  kable()
+
+ETF_Pivot <- ETFSummary %>% 
+  pivot_longer(cols = -1,
+               names_to = 'ETFs',
+               values_to = 'Prices')
+```
+
+# Tabular & Graphical analysis of each Fund
+## Vanguard S&P 500  (Acc)
+
+```{r Analyzing each fund...}
+VSP_Analysis_outlier <- ETF_Analysis_impute %>% 
+  group_by(Year) %>% 
+  summarise(Q1 = quantile(Vang_S.P_500_Acc, probs = 0.25),
+            Q3 = quantile(Vang_S.P_500_Acc, probs = 0.75),
+            IQR = Q3 - Q1,
+            UL = Q3 + 1.5 * IQR,
+            LL = Q1 - 1.5 * IQR) %>% 
+  tibble()
+VSP_Analysis_outlier %>% 
+  kable()
+
+# Plot a box plot
+ETF_Analysis_impute %>% 
+  ggplot(aes(Year, Vang_S.P_500_Acc)) +
+  geom_boxplot() +
+  labs(title = 'Box plot for Vang S&P', xlab = 'Year', ylab = 'Price')
+```
+
+## iShares World (Acc)
+
+```{r Analyzing iShares World...}
+iSW_Analysis_outlier <- ETF_Analysis_impute %>% 
+  group_by(Year) %>% 
+  summarise(Q1 = quantile(iShares_World_Acc, probs = 0.25),
+            Q3 = quantile(iShares_World_Acc, probs = 0.75),
+            IQR = Q3 - Q1,
+            UL = Q3 + 1.5 * IQR,
+            LL = Q1 - 1.5 * IQR) %>% 
+  tibble()
+iSW_Analysis_outlier %>% 
+  kable()
+
+# Plot a box plot
+ETF_Analysis_impute %>% 
+  ggplot(aes(Year, iShares_World_Acc)) +
+  geom_boxplot() +
+  labs(title = 'Box plot for iShares World', xlab = 'Year', ylab = 'Price')
+```
+
+## Vang FTSE World (Acc)
+
+```{r Analyzing Vang FTSE World...}
+VFW_Analysis_outlier <- ETF_Analysis_impute %>% 
+  group_by(Year) %>% 
+  summarise(Q1 = quantile(Vang_FTSE_World_Acc, probs = 0.25),
+            Q3 = quantile(Vang_FTSE_World_Acc, probs = 0.75),
+            IQR = Q3 - Q1,
+            UL = Q3 + 1.5 * IQR,
+            LL = Q1 - 1.5 * IQR) %>% 
+  tibble()
+VFW_Analysis_outlier %>% 
+  kable()
+
+# Plot a box plot
+ETF_Analysis_impute %>% 
+  ggplot(aes(Year, Vang_FTSE_World_Acc)) +
+  geom_boxplot() +
+  labs(title = 'Box plot for Vang FTSE World', xlab = 'Year', ylab = 'Price')
+```
+
+## iShares FTSE (Dist)
+
+```{r Analysing iShares FTSE...}
+iFT_Analysis_outlier <- ETF_Analysis_impute %>% 
+  group_by(Year) %>% 
+  summarise(Q1 = quantile(iShares_FTSE_Dist, probs = 0.25),
+            Q3 = quantile(iShares_FTSE_Dist, probs = 0.75),
+            IQR = Q3 - Q1,
+            UL = Q3 + 1.5 * IQR,
+            LL = Q1 - 1.5 * IQR) %>% 
+  tibble()
+iFT_Analysis_outlier %>% 
+  kable()
+
+# Plot a box plot
+ETF_Analysis_impute %>% 
+  ggplot(aes(Year, iShares_FTSE_Dist)) +
+  geom_boxplot() +
+  labs(title = 'Box plot for iShares FTSE', xlab = 'Year', ylab = 'Price')
+```
+
+## iShares Bitcoin
+
+```{r Analysing iShares Bitcoin...}
+iFT_Analysis_outlier <- ETF_Analysis_impute %>% 
+  group_by(Year) %>% 
+  summarise(Q1 = quantile(iShares_Bitcoin, probs = 0.25),
+            Q3 = quantile(iShares_Bitcoin, probs = 0.75),
+            IQR = Q3 - Q1,
+            UL = Q3 + 1.5 * IQR,
+            LL = Q1 - 1.5 * IQR) %>% 
+  tibble()
+iFT_Analysis_outlier %>% 
+  kable()
+
+# Plot a box plot
+ETF_Analysis_impute %>% 
+  ggplot(aes(Year, iShares_Bitcoin)) +
+  geom_boxplot() +
+  labs(title = 'Box plot for iShares Bitcoin', xlab = 'Year', ylab = 'Price')
+```
+
